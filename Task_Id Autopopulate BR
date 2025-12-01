@@ -1,0 +1,20 @@
+function onSubmit() {
+    var taskSysId = g_form.getValue('task_id'); // variable storing task sys_id
+    var requestNumber = g_form.getValue('number'); // catalog request number
+
+    if (taskSysId && requestNumber) {
+        var ga = new GlideAjax('StoreRequestNumber');
+        ga.addParam('sysparm_name', 'storeInTask');
+        ga.addParam('sysparm_taskSysId', taskSysId);
+        ga.addParam('sysparm_requestNumber', requestNumber);
+        ga.getXMLAnswer(function(response){
+            var result = JSON.parse(response);
+            if(result.status){
+                g_form.addInfoMessage(result.message);
+            } else {
+                g_form.addErrorMessage(result.message);
+            }
+        });
+    }
+    return true; // allow submission to continue
+}
