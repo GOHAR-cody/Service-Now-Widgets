@@ -1,0 +1,142 @@
+//HTML
+
+<div>
+  <h3 class="audit-header">
+    <i class="fa fa-folder-open" style="color:#4a90e2; margin-right:5px;"></i>
+    Audits - {{data.manager_name}}
+  </h3>
+
+  <table class="table audit-table" ng-if="data.audits.length > 0">
+    <thead>
+      <tr>
+        <th>Audit Number</th>
+        <th>Status</th>
+        <th>Created On</th>
+      </tr>
+    </thead>
+
+    <tbody>
+      <tr ng-repeat="audit in data.audits">
+        <td>
+          <a href="" ng-click="openAudit(audit)" class="audit-link">
+            {{audit.audit_number}}
+          </a>
+        </td>
+        <td>{{audit.status}}</td>
+        <td>{{audit.created_on}}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p ng-if="data.audits.length == 0" class="no-records">No audits assigned.</p>
+
+  <!-- Pagination -->
+  <div class="text-center audit-pagination" ng-if="data.totalPages > 1">
+    <button class="btn btn-pagination" ng-click="goToPage(data.page - 1)"
+            ng-disabled="data.page == 1">
+      &#8592;
+    </button>
+
+    <span class="page-info">Page {{data.page}} of {{data.totalPages}}</span>
+
+    <button class="btn btn-pagination" ng-click="goToPage(data.page + 1)"
+            ng-disabled="data.page == data.totalPages">
+      &#8594;
+    </button>
+  </div>
+</div>
+
+
+//CLIENT
+
+api.controller = function ($scope, spUtil, $window) {
+
+    // Navigate to tasks page
+    $scope.openAudit = function (audit) {
+        if (!audit || !audit.sys_id) return;
+        $window.location.href = '/sp?id=audit_tasks&sys_id=' + audit.sys_id;
+    };
+
+    // Switch pages
+    $scope.goToPage = function (page) {
+        if (page < 1 || page > $scope.data.totalPages) return;
+
+        console.log("Fetching page: ", page);
+
+        // Call server.get() with page parameter
+        $scope.server.get({ page: page }).then(function(response) {
+            // Replace current data with server response
+            $scope.data.audits = response.data.audits;
+            $scope.data.page = response.data.page;
+            $scope.data.totalPages = response.data.totalPages;
+					
+					console.log("Fetching page: ", $scope.data.audits);
+        });
+    };
+};
+
+
+
+//SERVER
+
+(function() {
+    data.audits = [];
+    data.manager_name = "";
+
+  
+var pageParam = input && input.page ? parseInt(input.page, 10) : 1;
+data.page = !isNaN(pageParam) && pageParam > 0 ? pageParam : 1;
+
+	gs.info("page param:" + pageParam);
+gs.info("INPUT PAGE RECEIVED: " + (input && input.page ? input.page : "not provided"));
+
+    var PAGE_SIZE = 50;
+    var offset = (data.page - 1) * PAGE_SIZE;
+
+    var userID = gs.getUserID();
+
+    // Query records
+    var gr = new GlideRecord('x_1849621_m3_use_0_audit_access_table');
+    gr.addQuery('auditor', userID);
+    gr.orderBy('sys_created_on');
+    gr.query();
+
+    var index = 0;
+    var collected = 0;
+    var firstRecord = true;
+
+    while (gr.next()) {
+        if (firstRecord) {
+            data.manager_name = gr.getDisplayValue('auditor');
+            firstRecord = false;
+        }
+
+        if (index < offset) { index++; continue; }
+
+        if (collected < PAGE_SIZE) {
+            data.audits.push({
+                sys_id: gr.getUniqueValue(),
+                audit_number: gr.number + "",
+                status: gr.status + "",
+                created_on: gr.sys_created_on + ""
+            });
+            collected++;
+        } else {
+            break;
+        }
+
+        index++;
+    }
+
+    if (!data.manager_name)
+        data.manager_name = gs.getUserDisplayName();
+
+    // Total count
+    var agg = new GlideAggregate('x_1849621_m3_use_0_audit_access_table');
+    agg.addQuery('auditor', userID);
+    agg.addAggregate('COUNT');
+    agg.query();
+    data.total = agg.next() ? parseInt(agg.getAggregate('COUNT'), 10) : 0;
+
+    data.totalPages = Math.ceil(data.total / PAGE_SIZE);
+})();
