@@ -1,0 +1,269 @@
+//HTML
+
+<div>
+  <sp-message></sp-message>
+
+  <h3 class="audit-header">
+    <i class="fa fa-tasks" style="color:#4a90e2; margin-right:5px;"></i>
+    Tasks  -  {{data.audit_number}}
+  </h3>
+
+  <table class="audit-table" ng-if="c.data.tasks.length > 0">
+    <thead>
+      <tr>
+        <th>User</th>
+        <th>Status</th>
+        <th>Roles</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr ng-repeat="task in c.data.tasks">
+        <td>{{task.user_name}}</td>
+        <td>{{task.status}}</td>
+        <td>
+          <span ng-repeat="role in task.roles">
+            <a class="audit-link" ng-click="c.showPermissions(role.sys_id, role.name)">
+              {{role.name}}
+            </a><span ng-if="!$last">, </span>
+          </span>
+        </td>
+ <td>
+  <button class="btn btn-task btn-success" 
+          ng-click="c.takeAction(task, 'approved')"
+          ng-disabled="task.status || task.actionTaken">
+    Approve
+  </button>
+  <button class="btn btn-task btn-danger" 
+          ng-click="c.takeAction(task, 'rejected')"
+          ng-disabled="task.status || task.actionTaken">
+    Remove
+  </button>
+  <button class="btn btn-task btn-warning" 
+          ng-click="c.takeAction(task, 'removed')"
+          ng-disabled="task.status || task.actionTaken">
+    No longer required
+  </button>
+</td>
+
+
+      </tr>
+    </tbody>
+  </table>
+
+  <p ng-if="c.data.tasks.length == 0" class="no-records">No tasks found for this audit.</p>
+
+  <!-- Pagination -->
+  <div class="text-center audit-pagination" ng-if="c.data.totalPages > 1">
+    <button class="btn btn-pagination" ng-click="c.goToPage(c.data.page - 1)" ng-disabled="c.data.page == 1">&#8592;</button>
+    <span class="page-info">Page {{c.data.page}} of {{c.data.totalPages}}</span>
+    <button class="btn btn-pagination" ng-click="c.goToPage(c.data.page + 1)" ng-disabled="c.data.page == c.data.totalPages">&#8594;</button>
+  </div>
+</div>
+
+
+//CLIENT
+
+
+api.controller = function($scope, spUtil, spModal) {
+    var c = this;
+
+    c.showPermissions = function(roleSysId, roleName) {
+
+        console.log("PARENT → SHOW PERMISSIONS CLICK");
+        console.log("ROLE NAME:", roleName);
+        console.log("ROLE SYS ID (parent):", roleSysId);
+
+        if (!roleSysId) return;
+
+        spModal.open({
+            title: 'Permissions for ' + roleName,
+            widget: 'x_1849621_m3_use_0_role_perm_popup',
+            widgetInput: {
+                role_sys_id: roleSysId
+            },
+            size: 'lg',
+            buttons: [{
+                label: 'Close',
+                cancel: true,
+                primary: true
+            }]
+        });
+    };
+
+
+    c.takeAction = function(task, action) {
+        if (!task || !action) return;
+
+        // disable ALL buttons for this task
+        task.actionTaken = true;
+
+        var auditIdToSend = $scope.data.audit_sys_id || auditID;
+
+        c.server.update({
+            sys_id: task.sys_id,
+            action: action,
+            audit_id: auditIdToSend
+        })
+        .then(function(response) {
+
+            if (response.message) {
+                spUtil.addInfoMessage(response.message);
+            }
+
+            // refresh data
+            return c.server.get({
+                audit_id: $scope.data.audit_sys_id,
+                action: action,
+                sys_id: task.sys_id
+            });
+
+        })
+        .then(function(updatedData) {
+
+            c.data.tasks = updatedData.data.tasks;
+
+            // persist disabled state
+            c.data.tasks.forEach(function(t) {
+                if (t.sys_id === task.sys_id) {
+                    t.actionTaken = true;
+                }
+            });
+
+            if (updatedData.data && updatedData.data.message) {
+                spUtil.addInfoMessage("✔ " + updatedData.data.message);
+            }
+
+            // remove button → redirect to catalog item WITH task_id
+            if (action === 'rejected') {
+                var catItem = '274b9b0dc31132108d41b1fdd40131ab';
+                var category = '109cdff8c6112276003b17991a09ad65';
+                var url = '/sp?id=sc_cat_item&sys_id=' + catItem +
+                          '&sysparm_category=' + category +
+                          '&sysparm_task_id=' + task.sys_id;
+
+                window.location.href = url;
+            }
+
+        })
+        .catch(function(err) {
+            spUtil.addErrorMessage('Error updating task: ' +
+                (err.data && err.data.message ? err.data.message : 'unknown error'));
+        });
+    };
+
+};
+
+
+
+//SERVER
+
+
+(function() {
+    data = data || {};
+    data.tasks = [];
+    data.message = '';
+	var PAGE_SIZE = 50;
+
+    gs.info("Server widget started, page load input: " + JSON.stringify(input));
+
+    // Get audit ID from URL or input
+    var auditID = $sp.getParameter('sys_id') || (input && input.audit_id);
+var pageParam = input && input.page ? parseInt(input.page, 10) : 1;
+data.page = !isNaN(pageParam) && pageParam > 0 ? pageParam : 1;
+
+var offset = (data.page - 1) * PAGE_SIZE;
+    if (!auditID) {
+        gs.info("No auditID provided");
+        data.error = 'No audit ID provided';
+        return;
+    }
+
+    // Handle update calls (server.update)
+    if (input && input.sys_id && input.action) {
+        gs.info("=== Update payload received ===: " + JSON.stringify(input));
+
+        var taskGR = new GlideRecord('x_1849621_m3_use_0_access_task_table');
+        if (taskGR.get(input.sys_id)) {
+            taskGR.setValue('score', input.action);
+            taskGR.update();
+
+            data.message = 'Task ' + input.action + 'ed successfully!';
+            gs.info("Task updated successfully | sys_id=" + input.sys_id + ", action=" + input.action);
+        } else {
+            data.message = 'Task not found.';
+            gs.info("Task not found | sys_id=" + input.sys_id);
+        }
+    }
+
+    // Fetch audit info
+    var auditGr = new GlideRecord('x_1849621_m3_use_0_audit_access_table');
+    if (auditGr.get(auditID)) {
+        data.audit_number = auditGr.number ? auditGr.number.toString() : '';
+        data.manager = auditGr.auditor ? auditGr.auditor.getDisplayValue() : '';
+        data.audit_sys_id = auditGr.getUniqueValue();
+    }
+
+    // Fetch tasks
+    var taskFetchGR = new GlideRecord('x_1849621_m3_use_0_access_task_table');
+    taskFetchGR.addQuery('audit', auditID);
+    taskFetchGR.query();
+
+	
+	var index = 0;
+var collected = 0;
+    while (taskFetchGR.next()) {
+			
+			 if (index < offset) { index++; continue; }
+			 if (collected < PAGE_SIZE) {
+        var userName = taskFetchGR.user ? taskFetchGR.user.getDisplayValue() : '';
+        var userSysId = taskFetchGR.user ? taskFetchGR.user.toString() : '';
+        var userRoles = [];
+
+        var accessGR = new GlideRecord('x_1849621_m3_use_0_m3_access');
+        accessGR.addQuery('user', userSysId);
+        accessGR.query();
+
+        while (accessGR.next()) {
+            if (accessGR.m3_roles) {
+                var roleList = accessGR.m3_roles.toString().split(',');
+                for (var i = 0; i < roleList.length; i++) {
+                    var roleId = roleList[i].trim();
+                    if (roleId) {
+                        var roleRec = new GlideRecord('x_1849621_m3_use_0_m3_roles');
+                        if (roleRec.get(roleId)) {
+                            userRoles.push({
+                                name: roleRec.name.toString(),
+                                sys_id: roleRec.getUniqueValue()
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        data.tasks.push({
+    sys_id: taskFetchGR.getUniqueValue(),
+    user_name: userName,
+    status: taskFetchGR.score ? taskFetchGR.score.toString() : '',
+    roles: userRoles,
+    actionTaken: false   // initialize property here
+});
+
+				collected++;
+    } else {
+        break; // Stop after collecting PAGE_SIZE tasks
+    } 
+			index++;
+    }
+var agg = new GlideAggregate('x_1849621_m3_use_0_access_task_table');
+agg.addQuery('audit', auditID);
+agg.addAggregate('COUNT');
+agg.query();
+data.total = agg.next() ? parseInt(agg.getAggregate('COUNT'), 10) : 0;
+
+data.totalPages = Math.ceil(data.total / PAGE_SIZE);
+    gs.info("Tasks fetched for audit " + auditID + ": " + data.tasks.length);
+})();
+
+
