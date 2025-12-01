@@ -1,0 +1,20 @@
+var StoreRequestNumber = Class.create();
+StoreRequestNumber.prototype = {
+    initialize: function() {},
+
+    storeInTask: function(taskSysId, requestNumber) {
+        if (!taskSysId || !requestNumber) 
+            return {status: false, message: "Task ID or Request Number missing"};
+
+        var taskGR = new GlideRecord('task'); // or 'sc_task', adjust if needed
+        if (taskGR.get(taskSysId)) {
+            taskGR.remove_request = requestNumber; // replace with your field
+            taskGR.update();
+            return {status: true, message: "Request number stored successfully"};
+        } else {
+            return {status: false, message: "Task not found"};
+        }
+    },
+
+    type: 'StoreRequestNumber'
+};
